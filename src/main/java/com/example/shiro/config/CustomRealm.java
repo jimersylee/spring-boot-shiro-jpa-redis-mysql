@@ -1,0 +1,63 @@
+package com.example.shiro.config;
+
+import com.example.shiro.entity.Permission;
+import com.example.shiro.entity.Role;
+import com.example.shiro.entity.User;
+import com.example.shiro.repository.PermissionRepository;
+import com.example.shiro.repository.RoleRepository;
+import com.example.shiro.repository.UserRepository;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.shiro.authc.*;
+import org.apache.shiro.authz.AuthorizationInfo;
+import org.apache.shiro.authz.SimpleAuthorizationInfo;
+import org.apache.shiro.realm.AuthorizingRealm;
+import org.apache.shiro.subject.PrincipalCollection;
+import org.apache.shiro.util.ByteSource;
+import org.springframework.beans.factory.annotation.Autowired;
+
+import java.util.List;
+import java.util.stream.Collectors;
+
+
+@Slf4j
+public class CustomRealm extends AuthorizingRealm {
+
+    @Autowired
+    private UserRepository userRepository;
+
+    @Autowired
+    private RoleRepository roleRepository;
+
+    @Autowired
+    private PermissionRepository permissionRepository;
+
+
+    @Override
+    protected AuthorizationInfo doGetAuthorizationInfo(PrincipalCollection principals) {
+        log.info("read from db...");
+        User user = (User) super.getAvailablePrincipal(principals);
+        SimpleAuthorizationInfo authorizationInfo = new SimpleAuthorizationInfo();
+        List<Long> roleIds = roleRepository.findUserRole(user.getId());
+
+        List<Role> roles = roleRepository.findAllById(roleIds);
+
+        authorizationInfo.setRoles(roles.stream().map(Role::getRoleCode).distinct().collect(Collectors.toSet()));
+
+        List<Long> permIds = permissionRepository.findRolePerm(roleIds);
+        List<Permission> permissions = permissionRepository.findByIdIn(permIds);
+
+        authorizationInfo.addStringPermissions(permissions.stream().map(Permission::getPermCode).distinct().collect(Collectors.toSet()));
+
+        return authorizationInfo;
+    }
+
+    @Override
+    protected AuthenticationInfo doGetAuthenticationInfo(AuthenticationToken authenticationToken) throws AuthenticationException {
+        UsernamePasswordToken token = (UsernamePasswordToken) authenticationToken;
+        String username = token.getUsername();
+        User user = userRepository.findUserByUsername(username);
+        SimpleAuthenticationInfo simpleAuthenticationInfo = new SimpleAuthenticationInfo(user, user.getPassword(), getName());
+        simpleAuthenticationInfo.setCredentialsSalt(ByteSource.Util.bytes(user.getSalt()));
+        return simpleAuthenticationInfo;
+    }
+}
